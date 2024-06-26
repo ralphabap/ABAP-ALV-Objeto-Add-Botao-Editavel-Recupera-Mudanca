@@ -1,0 +1,41 @@
+*----------------------------------------------------------------------*
+***INCLUDE ZPSDR_001_PAI.
+*----------------------------------------------------------------------*
+
+*&---------------------------------------------------------------------*
+*&      Module  ZM_EXIT_COMMAND_9001  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE zm_exit_command_9001 INPUT.
+
+  DATA:
+    lc_answer   TYPE c.
+
+  CASE gc_ok_code9001.
+    WHEN 'BACK'
+      OR 'EXIT'
+      OR 'CANCEL'.
+
+* Verifica se houve modificação, se sim pede pra salvar
+      PERFORM zf_verifica_se_modificacao CHANGING lc_answer.
+
+      CASE lc_answer.
+        WHEN c_popup_sim.
+
+          PERFORM zf_salvar_dados.
+
+          CLEAR: gc_ok_code9001.
+          LEAVE TO SCREEN 0.
+
+        WHEN c_popup_nao or ''."Espaço
+          CLEAR: gc_ok_code9001.
+          LEAVE TO SCREEN 0.
+
+        WHEN c_popup_cancel.
+* Não faz nada
+      ENDCASE.
+
+  ENDCASE.
+
+ENDMODULE.

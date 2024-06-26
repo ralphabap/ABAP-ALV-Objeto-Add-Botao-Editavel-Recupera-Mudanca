@@ -1,0 +1,95 @@
+*----------------------------------------------------------------------*
+***INCLUDE ZPSDR_001_PBO.
+*----------------------------------------------------------------------*
+*&---------------------------------------------------------------------*
+*&      Module  ZM_STATUS_9001  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE zm_status_9001 OUTPUT.
+
+  SET PF-STATUS 'STATUS_9001'.
+  SET TITLEBAR  'TITLEBAR_9001'.
+
+ENDMODULE.
+
+*&---------------------------------------------------------------------*
+*&      Module  ZM_EXIBE_ALV_9001  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE zm_exibe_alv_9001 OUTPUT.
+
+  DATA: lc_variant  TYPE disvariant.
+
+  IF go_container IS INITIAL.
+
+    CREATE OBJECT go_container
+      EXPORTING
+        container_name              = 'CONTAINER'
+      EXCEPTIONS
+        cntl_error                  = 1
+        cntl_system_error           = 2
+        create_error                = 3
+        lifetime_error              = 4
+        lifetime_dynpro_dynpro_link = 5
+        OTHERS                      = 6.
+
+    IF sy-subrc EQ 0.
+
+* Exclui botões dos alvs
+      PERFORM zf_exclude_tb_functions.
+
+*     Cria Conteiner
+      CREATE OBJECT go_alv
+        EXPORTING
+          i_parent      = go_container
+          i_appl_events = abap_true.
+
+      CLEAR lc_variant.
+      lc_variant = sy-repid.
+
+      CALL METHOD go_alv->set_table_for_first_display
+        EXPORTING
+          is_layout            = gs_layout
+          it_toolbar_excluding = gw_toolbar
+          i_save               = 'A'
+          is_variant           = lc_variant
+        CHANGING
+          it_outtab            = gw_alv
+          it_fieldcatalog      = gw_fieldcat
+        EXCEPTIONS
+          OTHERS               = 1.
+
+      CALL METHOD go_alv->set_ready_for_input
+        EXPORTING
+          i_ready_for_input = 1.
+
+      CREATE OBJECT go_application_alv.
+      SET HANDLER: go_application_alv->handle_toolbar_set   FOR go_alv,
+                   go_application_alv->handle_user_command  FOR go_alv,
+                   go_application_alv->handle_data_changed  FOR go_alv.
+
+      CALL METHOD go_alv->set_toolbar_interactive.
+
+      CALL METHOD cl_gui_control=>set_focus
+        EXPORTING
+          control = go_alv.
+
+* Ativa evento para obter instantaneamente o que foi alterado nos campos abertos para modificações
+      CALL METHOD go_alv->register_edit_event
+        EXPORTING
+          i_event_id = cl_gui_alv_grid=>mc_evt_modified  "Caso queira que ative no enter mudar para mc_evt_enter
+        EXCEPTIONS
+          error      = 1
+          OTHERS     = 2.
+
+    ENDIF.
+
+  ELSE.
+
+    CALL METHOD go_alv->refresh_table_display.
+
+  ENDIF.
+
+ENDMODULE.

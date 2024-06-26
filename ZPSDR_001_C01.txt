@@ -1,0 +1,66 @@
+*&---------------------------------------------------------------------*
+*&  Include           ZPSDR_001_C01
+*&---------------------------------------------------------------------*
+
+*-----------------------------------------------------------------------
+* Class DEFINITION
+*-----------------------------------------------------------------------
+  CLASS lcl_application_alv DEFINITION DEFERRED.
+
+*-----------------------------------------------------------------------*
+* Declaração dos Objetos
+*-----------------------------------------------------------------------*
+DATA:
+  go_application_alv TYPE REF TO lcl_application_alv,
+  go_container       TYPE REF TO cl_gui_custom_container, "Container (CUSTOM CONTROL) para a criação do ALV
+  go_alv             TYPE REF TO cl_gui_alv_grid. "ALV OO
+
+*-----------------------------------------------------------------------
+* CLASS lcl_application_alv DEFINITION
+*-----------------------------------------------------------------------
+CLASS lcl_application_alv DEFINITION.
+  PUBLIC SECTION.
+    METHODS:
+
+      handle_toolbar_set
+                    FOR EVENT toolbar OF cl_gui_alv_grid
+        IMPORTING e_object e_interactive,
+
+      handle_user_command
+                    FOR EVENT user_command OF cl_gui_alv_grid
+        IMPORTING e_ucomm,
+
+      handle_data_changed
+                    FOR EVENT data_changed OF cl_gui_alv_grid
+        IMPORTING er_data_changed.
+
+ENDCLASS.                    "lcl_application_alv DEFINITION
+
+*-----------------------------------------------------------------------
+* CLASS lcl_application_alv IMPLEMENTATION
+*-----------------------------------------------------------------------
+*
+*-----------------------------------------------------------------------
+CLASS lcl_application_alv IMPLEMENTATION.
+
+  METHOD handle_toolbar_set.
+*   Insere o botões
+    PERFORM zf_handle_toolbar USING e_object.
+
+  ENDMETHOD.                    "HANDLE_TOOLBAR_SET
+
+
+  METHOD handle_user_command.
+
+* Trata click dos botões
+    PERFORM zf_handle_command USING e_ucomm.
+
+  ENDMETHOD.                    "HANDLE_USER_COMMAND
+
+  METHOD handle_data_changed.
+
+    PERFORM zf_alv_valida_campos USING er_data_changed.
+
+  ENDMETHOD.
+
+ENDCLASS.                    "lcl_application_alv IMPLEMENTATION

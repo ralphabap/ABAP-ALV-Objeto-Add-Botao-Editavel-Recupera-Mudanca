@@ -1,0 +1,1107 @@
+*---------------------------------------------------------------------------
+* Programa : ZPSDR_001
+* Cliente  : VLI
+* Módulo   : SD
+* Transação: ZTSD006
+* Descrição: Programa para Cadastro de Vagões
+* Autor    : Ralph Zuanella                          Data: 12/01/2016
+*---------------------------------------------------------------------------
+* Histórico de Alterações:
+*---------------------------------------------------------------------------
+* Data       |Change #    |Autor            |Alteração
+*---------------------------------------------------------------------------
+* 12/01/2016 |DR1K900413  |Ralph Zuanella   |Desenvolvimento Inicial
+*---------------------------------------------------------------------------
+REPORT zpsdr_001 MESSAGE-ID zlsd01.
+
+*---------------------------------------------------------------------------
+* Tabelas
+*---------------------------------------------------------------------------
+TABLES:
+  ztbsd_008.
+
+*---------------------------------------------------------------------------
+* Tabelas Internas
+*---------------------------------------------------------------------------
+DATA:
+  gw_zvwsd_004h TYPE TABLE OF zvwsd_004h,
+  gw_alv        TYPE TABLE OF zstsd_002,
+  gw_fieldcat   TYPE TABLE OF lvc_s_fcat,
+  gw_deletados  TYPE TABLE OF ztbsd_008,
+  gw_toolbar    TYPE ui_functions.
+
+*---------------------------------------------------------------------------
+* Estruturas
+*---------------------------------------------------------------------------
+DATA:
+  gs_layout   TYPE lvc_s_layo.
+
+*---------------------------------------------------------------------------
+* Variáveis
+*---------------------------------------------------------------------------
+DATA:
+  gc_erro        TYPE c,
+  gc_ok_code9001 TYPE sy-ucomm,
+  gc_can_mod     TYPE c,
+  gc_ocurr_modif TYPE c.
+
+*---------------------------------------------------------------------------
+* Constantes
+*---------------------------------------------------------------------------
+CONSTANTS:
+  c_zstsd_002    TYPE dd02l-tabname          VALUE 'ZSTSD_002',
+  c_a            TYPE c                      VALUE 'A',
+  c_e            TYPE c                      VALUE 'E',
+  c_m            TYPE c                      VALUE 'M',
+  c_i            TYPE c                      VALUE 'I',
+  c_ins          TYPE c LENGTH 3             VALUE 'INS',
+  c_del          TYPE c LENGTH 3             VALUE 'DEL',
+  c_sav          TYPE c LENGTH 3             VALUE 'SAV',
+  c_sd           TYPE zdesd_001              VALUE 'SD',
+  c_06_020       TYPE zdesd_002              VALUE '06.020',
+  c_36_sd        TYPE zdesd_003              VALUE '36_SD',
+  c_mod_vagao    TYPE zdesd_004              VALUE 'MOD_VAGÃO',
+  c_uname        TYPE zdesd_005              VALUE 'UNAME',
+  c_ferrovia     TYPE lvc_s_fcat-fieldname  VALUE 'FERROVIA',
+  c_serie        TYPE lvc_s_fcat-fieldname  VALUE 'SERIE',
+  c_numero       TYPE lvc_s_fcat-fieldname  VALUE 'NUMERO',
+  c_tipo         TYPE lvc_s_fcat-fieldname  VALUE 'TIPO',
+  c_desc_tipo    TYPE lvc_s_fcat-fieldname  VALUE 'DESC_TIPO',
+  c_status       TYPE lvc_s_fcat-fieldname  VALUE 'STATUS',
+  c_tara         TYPE lvc_s_fcat-fieldname  VALUE 'TARA',
+  c_centro       TYPE lvc_s_fcat-fieldname  VALUE 'CENTRO',
+  c_evento       TYPE lvc_s_fcat-fieldname  VALUE 'EVENTO',
+  c_desc_evento  TYPE lvc_s_fcat-fieldname  VALUE 'DESC_EVENTO',
+  c_tpmodi       TYPE lvc_s_fcat-fieldname  VALUE 'TPMODI',
+  c_ernam        TYPE lvc_s_fcat-fieldname  VALUE 'ERNAM',
+  c_erdat        TYPE lvc_s_fcat-fieldname  VALUE 'ERDAT',
+  c_erzet        TYPE lvc_s_fcat-fieldname  VALUE 'ERZET',
+  c_new_row      TYPE lvc_s_fcat-fieldname  VALUE 'NEW_ROW',
+  c_celltab      TYPE lvc_s_fcat-fieldname  VALUE 'CELLTAB',
+  c_popup_sim    TYPE c                     VALUE '1',
+  c_popup_nao    TYPE c                     VALUE '2',
+  c_popup_cancel TYPE c                     VALUE 'A',
+  c_transacao    TYPE c LENGTH 2            VALUE '01',
+  c_ztbsd_006    TYPE lvc_s_fcat-tabname    VALUE 'ZTBSD_006',
+  c_ztbsd_007    TYPE lvc_s_fcat-tabname    VALUE 'ZTBSD_007'.
+
+*---------------------------------------------------------------------------
+* Includes
+*---------------------------------------------------------------------------
+INCLUDE:
+  zpsdr_001_c01, "Classes e Objetos
+  zpsdr_001_pbo, "PBO das Telas
+  zpsdr_001_pai. "PAI das Telas
+
+*---------------------------------------------------------------------------
+* Tela de Seleção
+*---------------------------------------------------------------------------
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE text-001.
+SELECT-OPTIONS:
+  s_ferr    FOR ztbsd_008-ferrovia,
+  s_seri    FOR ztbsd_008-serie,
+  s_nume    FOR ztbsd_008-numero,
+  s_tipo    FOR ztbsd_008-tipo.
+SELECTION-SCREEN END OF BLOCK b1.
+
+SELECTION-SCREEN BEGIN OF BLOCK b2 WITH FRAME TITLE text-002.
+SELECT-OPTIONS:
+  s_stat    FOR ztbsd_008-status,
+  s_cent    FOR ztbsd_008-centro,
+  s_even    FOR ztbsd_008-evento,
+  s_erdat   FOR ztbsd_008-erdat.
+SELECTION-SCREEN END OF BLOCK b2.
+
+*---------------------------------------------------------------------------
+* Start of Selection
+*---------------------------------------------------------------------------
+START-OF-SELECTION.
+
+  PERFORM zf_limpa_globais.
+
+* Seleção dos dados
+  PERFORM zf_seleciona_dados.
+
+  IF gc_erro IS INITIAL.
+
+* Verifica autorização do usuário
+    PERFORM zf_verifica_auto_user CHANGING gc_can_mod.
+
+* Processamento dos dados
+    PERFORM zf_processa_dados.
+
+* Gerar o ALV para cadastro dos vagões
+    PERFORM zf_gera_alv.
+
+  ENDIF.
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_SELECIONA_DADOS
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM zf_seleciona_dados .
+
+  CLEAR gc_erro.
+
+* Seleciona os vagões de acordo com a tela de seleção preenchida pelo
+* usuário
+* Hana AT: AT_CAD_VAGOES | Sap View: ZVWSD_004H
+  REFRESH gw_zvwsd_004h[].
+  SELECT *
+    FROM zvwsd_004h
+    INTO TABLE gw_zvwsd_004h
+    WHERE ferrovia    IN s_ferr
+      AND serie       IN s_seri
+      AND numero      IN s_nume
+      AND tipo        IN s_tipo
+      AND status      IN s_stat
+      AND centro      IN s_cent
+      AND evento      IN s_even
+      AND erdat       IN s_erdat.
+
+  IF sy-subrc   IS NOT INITIAL AND
+     gc_can_mod IS INITIAL.
+
+    gc_erro = abap_true.
+    MESSAGE s000 WITH 'Nenhum regitro encontrado'(003) DISPLAY LIKE c_e.
+
+  ENDIF.
+
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_VERIFICA_AUTO_USER
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM zf_verifica_auto_user  CHANGING p_can_mod.
+
+  DATA:
+    lt_campo_01 TYPE TABLE OF dnos_ranges,
+    lt_campo_02 TYPE TABLE OF dnos_ranges.
+
+* Limpra flag
+  CLEAR p_can_mod.
+
+  REFRESH: lt_campo_01[],
+           lt_campo_02[].
+
+  CALL FUNCTION 'Z_FSD_002'
+    EXPORTING
+      i_modl              = c_sd
+      i_proce             = c_06_020
+      i_delta             = c_36_sd
+      i_oper              = c_mod_vagao
+      i_referencia        = c_uname
+*     I_EXIT              =
+    TABLES
+      t_campo_01          = lt_campo_01
+      t_campo_02          = lt_campo_02
+    EXCEPTIONS
+      nao_encontrado      = 1
+      exit_nao_encontrada = 2
+      exit_inativa        = 3
+      OTHERS              = 4.
+
+  IF sy-subrc IS INITIAL.
+
+    IF  sy-uname IN lt_campo_01 OR
+        sy-uname IN lt_campo_02.
+
+* O usuário pode modificar
+      p_can_mod = abap_true.
+
+    ENDIF.
+
+  ENDIF.
+
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_PROCESSA_DADOS
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM zf_processa_dados .
+
+* Declarações locais
+  DATA:
+    lw_celltab    TYPE lvc_t_styl,
+
+    ls_zvwsd_004h TYPE zvwsd_004h,
+    ls_alv        TYPE zstsd_002.
+
+* Monta tabela para exibição do ALV
+  REFRESH gw_alv[].
+
+  LOOP AT gw_zvwsd_004h INTO ls_zvwsd_004h.
+
+    CLEAR ls_alv.
+
+    ls_alv-ferrovia     = ls_zvwsd_004h-ferrovia.
+    ls_alv-serie        = ls_zvwsd_004h-serie.
+    ls_alv-numero       = ls_zvwsd_004h-numero.
+    ls_alv-tipo         = ls_zvwsd_004h-tipo.
+    ls_alv-status       = ls_zvwsd_004h-status.
+    ls_alv-tara         = ls_zvwsd_004h-tara.
+    ls_alv-centro       = ls_zvwsd_004h-centro.
+    ls_alv-evento       = ls_zvwsd_004h-evento.
+    ls_alv-tpmodi       = ls_zvwsd_004h-tpmodi.
+    ls_alv-ernam        = ls_zvwsd_004h-ernam.
+    ls_alv-erdat        = ls_zvwsd_004h-erdat.
+    ls_alv-erzet        = ls_zvwsd_004h-erzet.
+    ls_alv-desc_tipo    = ls_zvwsd_004h-desc_tipo.
+    ls_alv-desc_evento  = ls_zvwsd_004h-desc_evento.
+
+    IF gc_can_mod IS INITIAL.
+
+* Bloqueia campos
+      PERFORM zf_fill_celltab USING c_e
+                              CHANGING lw_celltab.
+
+    ELSE.
+
+* Bloqueia campos
+      PERFORM zf_fill_celltab USING c_m
+                              CHANGING lw_celltab.
+
+    ENDIF.
+
+    INSERT LINES OF lw_celltab INTO TABLE ls_alv-celltab.
+
+    APPEND ls_alv TO gw_alv.
+
+  ENDLOOP.
+
+
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_GERA_ALV
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM zf_gera_alv .
+
+* Monta fieldcat
+  PERFORM zf_prepara_fieldcat.
+
+* Prepara layout do relatório ALV
+  PERFORM zf_prepara_layout.
+
+* Chama tela com o ALV
+  CALL SCREEN 9001.
+
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_PREPARA_FIELDCAT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM zf_prepara_fieldcat .
+
+  FIELD-SYMBOLS:
+    <fs_fieldcat> TYPE lvc_s_fcat.
+
+* Determina os Campos que deverão ser exibidos no ALV
+  REFRESH gw_fieldcat[].
+  CALL FUNCTION 'LVC_FIELDCATALOG_MERGE'
+    EXPORTING
+      i_structure_name = c_zstsd_002
+    CHANGING
+      ct_fieldcat      = gw_fieldcat.
+
+  LOOP AT gw_fieldcat ASSIGNING <fs_fieldcat>.
+
+    CASE <fs_fieldcat>-fieldname.
+
+      WHEN c_erdat.
+        <fs_fieldcat>-coltext = 'Data Modificação'(009).
+
+      WHEN c_erzet.
+        <fs_fieldcat>-coltext = 'Hora Modificação'(010).
+
+      WHEN c_ernam.
+        <fs_fieldcat>-coltext = 'Usuário Modificação'(011).
+
+* Campos Chave
+      WHEN c_ferrovia.
+        <fs_fieldcat>-key = abap_true.
+
+      WHEN c_serie.
+        <fs_fieldcat>-key = abap_true.
+
+      WHEN c_numero.
+        <fs_fieldcat>-key = abap_true.
+
+      WHEN c_tipo.
+        <fs_fieldcat>-key         = abap_true.
+        <fs_fieldcat>-checktable  = c_ztbsd_006.
+        <fs_fieldcat>-f4availabl  = abap_true.
+
+      WHEN c_evento.
+        <fs_fieldcat>-checktable  = c_ztbsd_007.
+        <fs_fieldcat>-f4availabl  = abap_true.
+
+* Campos que não devem aparecer no relatório
+      WHEN c_new_row.
+
+        <fs_fieldcat>-tech = abap_true.
+
+    ENDCASE.
+
+  ENDLOOP.
+
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_PREPARA_LAYOUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM zf_prepara_layout .
+
+* Layout
+  CLEAR gs_layout.
+  gs_layout-zebra      = abap_true. "Linhas zebradas do relatório
+  gs_layout-cwidth_opt = abap_true. "Otimização das colunas do relatório
+  gs_layout-sel_mode   = c_a.
+  gs_layout-stylefname = c_celltab.
+
+ENDFORM.
+
+* -----------------------------------------------------------------------
+* Form  ZF_HANDLE_TOOLBAR
+* -----------------------------------------------------------------------
+* Monta botões Zs dos ALVs
+* -----------------------------------------------------------------------
+FORM zf_handle_toolbar USING p_e_object TYPE REF TO cl_alv_event_toolbar_set.
+
+  DATA: ls_toolbar  TYPE stb_button.
+
+  IF gc_can_mod = abap_true.
+
+* Adiciona um espaço (separador) no final dos botões STANDARD.
+    CLEAR ls_toolbar.
+    MOVE 3 TO ls_toolbar-butn_type.
+    APPEND ls_toolbar TO p_e_object->mt_toolbar.
+
+* Adiciona atributos para a criação de um novo botão.
+* Botão Inserir
+    CLEAR ls_toolbar.
+    ls_toolbar-function    = c_ins.
+    ls_toolbar-quickinfo   = 'Inserir Linha'(004).
+*  ls_toolbar-text        = ''.
+    ls_toolbar-disabled    = space.
+    ls_toolbar-icon        = icon_insert_row.
+    APPEND ls_toolbar      TO p_e_object->mt_toolbar.
+
+* Botão Excluir
+    CLEAR ls_toolbar.
+    ls_toolbar-function    = c_del.
+    ls_toolbar-quickinfo   = 'Excluir Linha'(005).
+*  ls_toolbar-text        = ''.
+    ls_toolbar-disabled    = space.
+    ls_toolbar-icon        = icon_delete_row.
+    APPEND ls_toolbar      TO p_e_object->mt_toolbar.
+
+* Adiciona um espaço (separador) no final dos botões STANDARD.
+    CLEAR ls_toolbar.
+    MOVE 3 TO ls_toolbar-butn_type.
+    APPEND ls_toolbar TO p_e_object->mt_toolbar.
+
+* Botão Salvar
+    CLEAR ls_toolbar.
+    ls_toolbar-function    = c_sav.
+    ls_toolbar-quickinfo   = 'Salvar'(006).
+*  ls_toolbar-text        = ''.
+    ls_toolbar-disabled    = space.
+    ls_toolbar-icon        = icon_system_save.
+    APPEND ls_toolbar      TO p_e_object->mt_toolbar.
+
+  ENDIF.
+
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_HANDLE_COMMAND
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM zf_handle_command  USING    p_ucomm TYPE sy-ucomm.
+
+  CASE p_ucomm.
+
+    WHEN c_ins. "Inserir
+
+      PERFORM zf_inserir_linha.
+
+    WHEN c_del. "Removr
+
+      PERFORM zf_remover_linha.
+
+    WHEN c_sav. "Salvar
+
+      PERFORM zf_salvar_dados.
+
+  ENDCASE.
+
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_INSERIR_LINHA
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM zf_inserir_linha .
+
+  DATA:
+    lw_celltab   TYPE lvc_t_styl.
+
+  FIELD-SYMBOLS:
+    <fs_alv> LIKE LINE OF gw_alv.
+
+* Insere a nova linha na lista
+  UNASSIGN <fs_alv>.
+  INSERT INITIAL LINE INTO gw_alv INDEX 1 ASSIGNING <fs_alv>.
+
+  IF <fs_alv> IS ASSIGNED.
+
+    <fs_alv>-erdat    = sy-datum.
+    <fs_alv>-ernam    = sy-uname.
+    <fs_alv>-erzet    = sy-uzeit.
+    <fs_alv>-tpmodi   = c_transacao.
+    <fs_alv>-new_row  = abap_true.
+
+* Desbloqueia campos para inserção
+    PERFORM zf_fill_celltab USING c_i
+                            CHANGING lw_celltab.
+
+    INSERT LINES OF lw_celltab INTO TABLE <fs_alv>-celltab.
+
+  ENDIF.
+
+  CALL METHOD go_alv->refresh_table_display.
+
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_REMOVER_LINHA
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM zf_remover_linha .
+
+  DATA: lw_rows      TYPE         lvc_t_roid,
+
+        ls_rows      LIKE LINE OF lw_rows,
+        ls_alv       LIKE LINE OF gw_alv,
+        ls_deletados LIKE LINE OF gw_deletados.
+
+* Obtém Linhas selecionadas
+  REFRESH lw_rows[].
+  CALL METHOD go_alv->get_selected_rows
+    IMPORTING
+      et_row_no = lw_rows.
+
+  IF lw_rows[] IS NOT INITIAL.
+
+    SORT: lw_rows BY row_id DESCENDING.
+
+* Elimina linha da grid e verifica se a linha ainda não foi inserida na tabela transparente.
+    LOOP AT lw_rows INTO ls_rows.
+
+      READ TABLE gw_alv INTO ls_alv INDEX ls_rows-row_id.
+
+      CHECK sy-subrc EQ 0.
+
+* Registros já salvos na tabela transparente devem ser eliminados
+      IF ls_alv-new_row IS INITIAL.
+
+        CLEAR ls_deletados.
+        MOVE-CORRESPONDING ls_alv TO ls_deletados.
+        APPEND ls_deletados TO gw_deletados.
+
+      ENDIF.
+
+* Elimina linha que foi selecionada no ALV
+      DELETE gw_alv INDEX ls_rows-row_id.
+
+    ENDLOOP.
+
+  ENDIF.
+
+  CALL METHOD go_alv->refresh_table_display.
+
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_SALVAR_DADOS
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM zf_salvar_dados .
+
+  DATA:
+    lw_ztbsd_008 TYPE TABLE OF ztbsd_008,
+
+    ls_ztbsd_008 TYPE ztbsd_008,
+    ls_alv       LIKE LINE OF gw_alv,
+
+    lc_modif     TYPE c.
+
+  CLEAR lc_modif.
+
+* Deleta os registros com chave em branco
+  DELETE gw_alv WHERE ferrovia  = space
+                  AND serie     = space
+                  AND numero    = space
+                  AND tipo      = space.
+
+* Valida registros duplicados
+  CLEAR gc_erro.
+  PERFORM zf_valida_duplicados USING gc_erro.
+
+  CHECK gc_erro IS INITIAL.
+
+* Monta tabela interna para inserir/modificar registros
+  REFRESH lw_ztbsd_008[].
+  LOOP AT gw_alv INTO ls_alv.
+
+    CLEAR ls_ztbsd_008.
+    MOVE-CORRESPONDING ls_alv TO ls_ztbsd_008.
+    APPEND ls_ztbsd_008 TO lw_ztbsd_008.
+
+  ENDLOOP.
+
+* Remove registros ZTBSD_008
+  IF gw_deletados[] IS NOT INITIAL.
+
+    DELETE ztbsd_008 FROM TABLE gw_deletados.
+    lc_modif = abap_true.
+
+    COMMIT WORK.
+
+  ENDIF.
+
+* Insere/Modifica registros ZTBSD_008
+  IF lw_ztbsd_008[] IS NOT INITIAL.
+
+    MODIFY ztbsd_008 FROM TABLE lw_ztbsd_008.
+    lc_modif = abap_true.
+
+    COMMIT WORK.
+
+  ENDIF.
+
+  IF lc_modif IS INITIAL.
+
+    MESSAGE s000 WITH 'Os dados não foram salvos'(007)
+      DISPLAY LIKE c_e.
+
+  ELSE.
+
+    MESSAGE s000 WITH 'Os dados foram salvos com sucesso'(008).
+
+    PERFORM zf_refresh_alv.
+
+  ENDIF.
+
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_VERIFICA_SE_MODIFICACAO
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM zf_verifica_se_modificacao CHANGING p_answer TYPE c.
+
+  DATA:
+    lc_modif    TYPE c.
+
+  CLEAR:  lc_modif,
+          p_answer.
+
+* Se algum registro foi deletado então ocorreram modificações
+  IF gw_deletados[] IS NOT INITIAL.
+    lc_modif = abap_true.
+  ENDIF.
+
+* Se algum campo foi modificado então ocorreram modificações
+  IF gc_ocurr_modif = abap_true.
+    lc_modif = abap_true.
+  ENDIF.
+
+* Se alguma linha foi inserida então ocorreram modificações
+  READ TABLE gw_alv TRANSPORTING NO FIELDS WITH KEY new_row = abap_true.
+  IF sy-subrc IS INITIAL.
+    lc_modif = abap_true.
+  ENDIF.
+
+  IF lc_modif = abap_true.
+
+    CALL FUNCTION 'POPUP_TO_CONFIRM'
+      EXPORTING
+        titlebar              = 'Questão'(012)
+        text_question         = 'Dados foram modificados. Deseja salvar?'(015)
+        text_button_1         = 'Sim'(013)
+        text_button_2         = 'Não'(014)
+        display_cancel_button = 'X'
+      IMPORTING
+        answer                = p_answer
+      EXCEPTIONS
+        text_not_found        = 1
+        OTHERS                = 2.
+
+  ENDIF.
+
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_ALV_VALIDA_CAMPOS
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM zf_alv_valida_campos USING  p_er_data_changed TYPE REF TO cl_alv_changed_data_protocol.
+
+  DATA:
+    ls_good  TYPE lvc_s_modi.
+
+  FIELD-SYMBOLS:
+    <fs_alv>  TYPE zstsd_002.
+
+  IF p_er_data_changed->mt_good_cells[] IS NOT INITIAL.
+
+* Marca flag que significa que houve mudanças nos dados
+    gc_ocurr_modif = abap_true.
+
+* Atualiza usuário, data e hora que mudou o registro
+    LOOP AT p_er_data_changed->mt_good_cells INTO ls_good.
+
+      UNASSIGN <fs_alv>.
+      READ TABLE gw_alv ASSIGNING <fs_alv> INDEX ls_good-row_id.
+      IF <fs_alv> IS ASSIGNED.
+
+        <fs_alv>-ernam  = sy-uname.
+        <fs_alv>-erdat  = sy-datum.
+        <fs_alv>-erzet  = sy-uzeit.
+        <fs_alv>-tpmodi = c_transacao.
+
+      ENDIF.
+
+    ENDLOOP.
+
+  ENDIF.
+
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_EXCLUDE_TB_FUNCTIONS
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM zf_exclude_tb_functions .
+
+  CHECK gw_toolbar IS INITIAL.
+
+  APPEND: cl_gui_alv_grid=>mc_fc_auf                   TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_average               TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_back_classic          TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_call_abc              TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_call_chain            TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_call_crbatch          TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_call_crweb            TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_call_lineitems        TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_call_master_data      TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_call_more             TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_call_report           TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_call_xint             TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_call_xml_export       TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_call_xxl              TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_check                 TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_data_save             TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_detail                TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_loc_delete_row        TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_detail                TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_expcrdata             TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_expcrdesig            TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_expcrtempl            TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_expmdb                TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_extend                TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_graph                 TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_html                  TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_loc_copy              TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_loc_copy_row          TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_loc_cut               TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_loc_insert_row        TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_info                  TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_loc_append_row        TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_loc_move_row          TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_loc_paste             TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_loc_paste_new_row     TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_loc_undo              TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_pc_file               TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_print                 TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_reprep                TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_subtot                TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_sum                   TO gw_toolbar,
+          cl_gui_alv_grid=>mc_mb_subtot                TO gw_toolbar,
+          cl_gui_alv_grid=>mc_mb_sum                   TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_send                  TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_to_office             TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_to_rep_tree           TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_url_copy_to_clipboard TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_views                 TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_word_processor        TO gw_toolbar,
+          cl_gui_alv_grid=>mc_fc_refresh               TO gw_toolbar.
+
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_FILL_CELLTAB
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM zf_fill_celltab  USING    p_modo         TYPE char1
+                      CHANGING p_lw_celltab   TYPE lvc_t_styl.
+
+  DATA:
+    ls_celltab TYPE lvc_s_styl.
+
+  REFRESH p_lw_celltab[].
+
+  CLEAR ls_celltab.
+  ls_celltab-fieldname = c_desc_tipo.
+  ls_celltab-style = cl_gui_alv_grid=>mc_style_disabled.
+  INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+  CLEAR ls_celltab.
+  ls_celltab-fieldname = c_desc_evento.
+  ls_celltab-style = cl_gui_alv_grid=>mc_style_disabled.
+  INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+  CLEAR ls_celltab.
+  ls_celltab-fieldname = c_tpmodi.
+  ls_celltab-style = cl_gui_alv_grid=>mc_style_disabled.
+  INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+  CLEAR ls_celltab.
+  ls_celltab-fieldname = c_ernam.
+  ls_celltab-style = cl_gui_alv_grid=>mc_style_disabled.
+  INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+  CLEAR ls_celltab.
+  ls_celltab-fieldname = c_erdat.
+  ls_celltab-style = cl_gui_alv_grid=>mc_style_disabled.
+  INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+  CLEAR ls_celltab.
+  ls_celltab-fieldname = c_erzet.
+  ls_celltab-style = cl_gui_alv_grid=>mc_style_disabled.
+  INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+  CASE p_modo.
+
+    WHEN c_e.
+
+      CLEAR ls_celltab.
+      ls_celltab-fieldname = c_ferrovia.
+      ls_celltab-style = cl_gui_alv_grid=>mc_style_disabled.
+      INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+      CLEAR ls_celltab.
+      ls_celltab-fieldname = c_serie.
+      ls_celltab-style = cl_gui_alv_grid=>mc_style_disabled.
+      INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+      CLEAR ls_celltab.
+      ls_celltab-fieldname = c_numero.
+      ls_celltab-style = cl_gui_alv_grid=>mc_style_disabled.
+      INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+      CLEAR ls_celltab.
+      ls_celltab-fieldname = c_tipo.
+      ls_celltab-style = cl_gui_alv_grid=>mc_style_disabled.
+      INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+      CLEAR ls_celltab.
+      ls_celltab-fieldname = c_status.
+      ls_celltab-style = cl_gui_alv_grid=>mc_style_disabled.
+      INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+      CLEAR ls_celltab.
+      ls_celltab-fieldname = c_tara.
+      ls_celltab-style = cl_gui_alv_grid=>mc_style_disabled.
+      INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+      CLEAR ls_celltab.
+      ls_celltab-fieldname = c_centro.
+      ls_celltab-style = cl_gui_alv_grid=>mc_style_disabled.
+      INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+      CLEAR ls_celltab.
+      ls_celltab-fieldname = c_evento.
+      ls_celltab-style = cl_gui_alv_grid=>mc_style_disabled.
+      INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+    WHEN c_m.
+
+      CLEAR ls_celltab.
+      ls_celltab-fieldname = c_ferrovia.
+      ls_celltab-style = cl_gui_alv_grid=>mc_style_disabled.
+      INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+      CLEAR ls_celltab.
+      ls_celltab-fieldname = c_serie.
+      ls_celltab-style = cl_gui_alv_grid=>mc_style_disabled.
+      INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+      CLEAR ls_celltab.
+      ls_celltab-fieldname = c_numero.
+      ls_celltab-style = cl_gui_alv_grid=>mc_style_disabled.
+      INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+      CLEAR ls_celltab.
+      ls_celltab-fieldname = c_tipo.
+      ls_celltab-style = cl_gui_alv_grid=>mc_style_disabled.
+      INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+      CLEAR ls_celltab.
+      ls_celltab-fieldname = c_status.
+      ls_celltab-style = cl_gui_alv_grid=>mc_style_enabled.
+      INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+      CLEAR ls_celltab.
+      ls_celltab-fieldname = c_tara.
+      ls_celltab-style = cl_gui_alv_grid=>mc_style_enabled.
+      INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+      CLEAR ls_celltab.
+      ls_celltab-fieldname = c_centro.
+      ls_celltab-style = cl_gui_alv_grid=>mc_style_enabled.
+      INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+      CLEAR ls_celltab.
+      ls_celltab-fieldname = c_evento.
+      ls_celltab-style = cl_gui_alv_grid=>mc_style_enabled.
+      INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+    WHEN c_i.
+
+      CLEAR ls_celltab.
+      ls_celltab-fieldname = c_ferrovia.
+      ls_celltab-style = cl_gui_alv_grid=>mc_style_enabled.
+      INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+      CLEAR ls_celltab.
+      ls_celltab-fieldname = c_serie.
+      ls_celltab-style = cl_gui_alv_grid=>mc_style_enabled.
+      INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+      CLEAR ls_celltab.
+      ls_celltab-fieldname = c_numero.
+      ls_celltab-style = cl_gui_alv_grid=>mc_style_enabled.
+      INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+      CLEAR ls_celltab.
+      ls_celltab-fieldname = c_tipo.
+      ls_celltab-style = cl_gui_alv_grid=>mc_style_enabled.
+      INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+      CLEAR ls_celltab.
+      ls_celltab-fieldname = c_status.
+      ls_celltab-style = cl_gui_alv_grid=>mc_style_enabled.
+      INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+      CLEAR ls_celltab.
+      ls_celltab-fieldname = c_tara.
+      ls_celltab-style = cl_gui_alv_grid=>mc_style_enabled.
+      INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+      CLEAR ls_celltab.
+      ls_celltab-fieldname = c_centro.
+      ls_celltab-style = cl_gui_alv_grid=>mc_style_enabled.
+      INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+      CLEAR ls_celltab.
+      ls_celltab-fieldname = c_evento.
+      ls_celltab-style = cl_gui_alv_grid=>mc_style_enabled.
+      INSERT ls_celltab INTO TABLE p_lw_celltab.
+
+  ENDCASE.
+
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_VALIDA_DUPLICADOS
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM zf_valida_duplicados  USING p_erro TYPE char1.
+
+  DATA:
+    lw_alv TYPE TABLE OF zstsd_002,
+
+    ls_alv TYPE zstsd_002.
+
+  DATA: lw_result TYPE REF TO data.
+
+  FIELD-SYMBOLS: <fs_result> TYPE ANY TABLE.
+
+  DATA:
+    lc_stmt   TYPE string,
+    lc_erro_h TYPE char200,
+    lc_chave  TYPE char50,
+    lc_index  TYPE sy-tabix.
+
+* Verifica se existem registros duplicados no ALV
+  REFRESH lw_alv[].
+  lw_alv[] = gw_alv[].
+  SORT lw_alv BY  ferrovia serie numero tipo.
+  DELETE ADJACENT DUPLICATES FROM lw_alv COMPARING ferrovia serie numero tipo.
+
+  LOOP AT gw_alv INTO ls_alv.
+
+    READ TABLE lw_alv TRANSPORTING NO FIELDS WITH KEY ferrovia  = ls_alv-ferrovia
+                                                      serie     = ls_alv-serie
+                                                      numero    = ls_alv-numero
+                                                      tipo      = ls_alv-tipo
+                                                      BINARY SEARCH.
+    IF sy-subrc IS INITIAL.
+      CLEAR lc_index.
+      lc_index = sy-tabix.
+
+      DELETE lw_alv INDEX lc_index.
+
+    ELSE.
+
+      CLEAR lc_chave.
+      CONCATENATE ls_alv-ferrovia
+                  '|'
+                  ls_alv-serie
+                  '|'
+                  ls_alv-numero
+                  '|'
+                  ls_alv-tipo
+             INTO lc_chave.
+
+      p_erro = abap_true.
+      MESSAGE s001 WITH 'Já existe uma entrada'(016)
+                        'com esta chave:'(017)
+                        lc_chave
+        DISPLAY LIKE c_e.
+
+      EXIT.
+
+    ENDIF.
+
+  ENDLOOP.
+
+  CHECK p_erro IS INITIAL.
+
+* Verifica se algum registro novo já existe gravado na tabela transparente
+  REFRESH lw_alv[].
+  lw_alv[] = gw_alv[].
+
+  DELETE lw_alv WHERE new_row = space.
+
+  LOOP AT lw_alv INTO ls_alv.
+
+    FREE lw_result.
+    CREATE DATA lw_result TYPE TABLE OF ztbsd_008-ferrovia.
+
+    UNASSIGN <fs_result>.
+    ASSIGN lw_result->* TO <fs_result>.
+
+    IF <fs_result> IS ASSIGNED.
+
+      lc_stmt = |SELECT "FERROVIA"| &&
+                | FROM "SAPABAP1"."ZTBSD_008"| &&
+                | WHERE MANDT     = { sy-mandt }| &&
+                | AND   FERROVIA  = '{ ls_alv-ferrovia }'| &&
+                | AND   SERIE     = '{ ls_alv-serie }'| &&
+                | AND   NUMERO    = '{ ls_alv-numero }'| &&
+                | AND   TIPO      = '{ ls_alv-tipo }'|.
+
+      CLEAR lc_erro_h.
+      CALL FUNCTION 'Z_FHANA_001'
+        EXPORTING
+          i_statement = lc_stmt
+        IMPORTING
+          e_erro      = lc_erro_h
+        CHANGING
+          t_result    = <fs_result>.
+
+      IF lc_erro_h IS INITIAL.
+
+        IF <fs_result>[] IS NOT INITIAL.
+
+          CLEAR lc_chave.
+          CONCATENATE ls_alv-ferrovia
+                      '|'
+                      ls_alv-serie
+                      '|'
+                      ls_alv-numero
+                      '|'
+                      ls_alv-tipo
+                 INTO lc_chave.
+
+          p_erro = abap_true.
+          MESSAGE s001 WITH 'Já existe uma entrada'(016)
+                            'com esta chave:'(017)
+                            lc_chave
+            DISPLAY LIKE c_e.
+
+          EXIT.
+
+        ENDIF.
+
+      ENDIF.
+
+    ENDIF.
+
+  ENDLOOP.
+
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_REFRESH_ALV
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM zf_refresh_alv .
+
+  PERFORM zf_limpa_globais.
+
+* Seleção dos dados
+  PERFORM zf_seleciona_dados.
+
+* Verifica autorização do usuário
+  PERFORM zf_verifica_auto_user CHANGING gc_can_mod.
+
+* Processamento dos dados
+  PERFORM zf_processa_dados.
+
+* Gerar o ALV para cadastro dos vagões
+  CALL METHOD go_alv->refresh_table_display.
+
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_LIMPA_GLOBAIS
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM zf_limpa_globais .
+
+  REFRESH:  gw_deletados[],
+            gw_toolbar[].
+  CLEAR:  gc_can_mod,
+          gc_ocurr_modif.
+
+ENDFORM.
